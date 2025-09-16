@@ -1,0 +1,36 @@
+model:
+  arch: resnet56_cifar
+  num_classes: 100
+  shortcut: "A"
+  width_mult: 1.0
+  attention: "se"
+  se_ratio: 0.25
+  drop_path_rate: 0.05
+
+data:
+  name: cifar100
+  root: ./data
+  aug: strong
+  mixup_alpha: 0.2
+  cutmix_alpha: 0.0
+
+optim:
+  name: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 2.0e-4
+  nesterov: true
+  sched: cosine
+  warmup_epochs: 5
+
+train:
+  epochs: 240
+  batch_size: 128
+  num_workers: 4
+  amp: true
+  clip_grad_norm: 1.0
+  val_interval: 1
+  out_dir: resnet_ablation/checkpoints/cifar100_resnet56_se_mix
+  tb_dir: runs/cifar100_resnet56_se_mix
+  seed: 42
+  label_smoothing: 0.1

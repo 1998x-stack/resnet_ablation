@@ -1,13 +1,12 @@
 from __future__ import annotations
-import argparse, yaml
-import torch
+import argparse, yaml, torch
 from loguru import logger
 from resnet_ablation.config import Config
 from resnet_ablation.logger import setup_logger
 from resnet_ablation.utils import set_seed, get_device
-from resnet_ablation.data import build_cifar10
+from resnet_ablation.data import build_dataloaders
 from resnet_ablation.engine.evaluator import evaluate
-from resnet_ablation.scripts.train import build_model  # 复用工厂
+from resnet_ablation.models.factory import build_model
 
 
 def load_config(path: str) -> Config:
@@ -27,7 +26,7 @@ def main():
     set_seed(cfg.train.seed)
     device = get_device()
 
-    train_loader, val_loader = build_cifar10(cfg.data.root, cfg.train.batch_size, cfg.train.num_workers, cfg.data.aug)
+    _, val_loader = build_dataloaders(cfg)
     model = build_model(cfg).to(device)
     state = torch.load(args.ckpt, map_location="cpu")
     model.load_state_dict(state["model"])

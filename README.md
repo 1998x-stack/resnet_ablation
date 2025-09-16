@@ -9,4 +9,4 @@ Quickstart:
 ```bash
 pip install -e .
 python scripts/train.py --config configs/cifar10_resnet20.yaml
-```# resnet_ablation
+```

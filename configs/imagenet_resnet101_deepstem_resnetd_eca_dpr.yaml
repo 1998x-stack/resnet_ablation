@@ -1,0 +1,38 @@
+model:
+  arch: resnet101
+  num_classes: 1000
+  shortcut: "B"
+  stem: "imagenet_deep"
+  downsample: "avgproj"
+  attention: "eca"
+  se_ratio: 0.25
+  drop_path_rate: 0.2        # 线性分配到所有 blocks
+
+data:
+  name: imagenet
+  root: /path/to/imagenet
+  aug: strong
+  mixup_alpha: 0.0
+  cutmix_alpha: 0.0
+
+optim:
+  name: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 1.0e-4
+  nesterov: true
+  sched: multistep
+  milestones: [30, 60, 90]
+  gamma: 0.1
+
+train:
+  epochs: 120
+  batch_size: 256
+  num_workers: 8
+  amp: true
+  clip_grad_norm: 1.0
+  val_interval: 1
+  out_dir: resnet_ablation/checkpoints/imagenet_r101_deepD_eca_dpr
+  tb_dir: runs/imagenet_r101_deepD_eca_dpr
+  seed: 42
+  label_smoothing: 0.1

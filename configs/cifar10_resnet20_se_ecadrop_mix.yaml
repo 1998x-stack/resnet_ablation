@@ -1,0 +1,36 @@
+model:
+  arch: resnet20_cifar
+  num_classes: 10
+  shortcut: "A"
+  width_mult: 1.0
+  attention: "eca"         # "none" / "se" / "eca"
+  se_ratio: 0.25
+  drop_path_rate: 0.05     # 线性分配到每个 block
+
+data:
+  name: cifar10
+  root: ./data
+  aug: strong
+  mixup_alpha: 0.2         # >0 启用 Mixup
+  cutmix_alpha: 0.0        # 同时>0则随机二选一
+
+optim:
+  name: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 1.0e-4
+  nesterov: true
+  sched: cosine
+  warmup_epochs: 5
+
+train:
+  epochs: 200
+  batch_size: 128
+  num_workers: 4
+  amp: true
+  clip_grad_norm: 1.0
+  val_interval: 1
+  out_dir: resnet_ablation/checkpoints/cifar10_resnet20_eca_dpr_mix
+  tb_dir: runs/cifar10_resnet20_eca_dpr_mix
+  seed: 42
+  label_smoothing: 0.1     # 无 mix/cut 时生效；有 mix/cut 时用 SoftTargetCE

@@ -621,7 +621,7 @@ git commit -m "feat: linear-warmup LR scheduler (warmup_epochs)"
 
 **Interfaces:**
 - Consumes: `build_dataloaders` (stubbed), `Trainer`, `Config`, `build_scheduler`.
-- Produces: pytest fixtures `tiny_dataset()` returning (inputs, targets) tensors; `train_config()` fixture. No production API changes.
+- Produces: pytest fixtures + E2E harness; **no csv assertion here** (results.csv writing is Task 6). No production API changes.
 
 - [ ] **Step 1: Write conftest fixtures**
 
@@ -663,15 +663,25 @@ def train_cfg():
 
 ```python
 import torch
+from pathlib import Path
+from torch.optim import SGD
+from torch.utils.data import DataLoader, TensorDataset
 from resnet_ablation.config import Config
-from resnet_ablation.utils import set_seed, get_device
+from resnet_ablation.utils import set_seed
 from resnet_ablation.engine.trainer import Trainer
 from resnet_ablation.models.factory import build_model
 from resnet_ablation.scheduler import build_scheduler
-from torch.optim import SGD
+
+
+def _make_loader(n=64, bs=8, num_classes=10):
+    torch.manual_seed(0)
+    x = torch.randn(n, 3, 32, 32)
+    y = torch.randint(0, num_classes, (n,))
+    return DataLoader(TensorDataset(x, y), batch_size=bs, shuffle=True)
 
 
 def _train_run(tmp_path):
+    """Run 2 epochs on a tiny CPU loader; return (cfg, last_train, last_val)."""
     set_seed(0)
     cfg = Config()
     cfg.train.batch_size = 8
@@ -679,28 +689,21 @@ def _train_run(tmp_path):
     cfg.train.amp = False
     cfg.model.arch = "resnet20_cifar"
     cfg.model.num_classes = 10
-    cfg.data.name = "cifar10_outpad"   # will use TinyLoader below
-    cfg.train.amp = False
     out = str(tmp_path / "ckpt")
     tb = str(tmp_path / "runs")
     model = build_model(cfg)
     opt = SGD(model.parameters(), lr=0.01)
     sched = build_scheduler(opt, cfg.optim, cfg.train.epochs)
     trainer = Trainer(model, opt, sched, torch.device("cpu"),
-                      out_dir=out, tb_dir=tb, amp=False,
-                      num_classes=10)
-    arch = "resnet20"
-    # stub loader: a tiny dataloader
-    from torch.utils.data import DataLoader, TensorDataset
-    x, y = torch.randn(32, 3, 32, 32), torch.randint(0, 10, (32,))
-    loader = DataLoader(TensorDataset(
+                      out_dir=out, tb_dir=tb, amp=False, num_classes=10)
+    loader = _make_loader()
     for e in range(cfg.train.epochs):
         s = trainer.train_one_epoch(e, loader)
         v = trainer.validate(e, loader)
     return cfg, s, v
 
 
-def test_e2e_loss_finite(capsys, tmp_path, monkeypatch):
+def test_e2e_loss_finite(tmp_path):
     cfg, s, v = _train_run(tmp_path)
     assert s["loss"] == s["loss"]  # NaN check (NaN != NaN)
     assert -1e9 < v["val_loss"] < 1e9
@@ -711,21 +714,13 @@ def test_e2e_determinism(tmp_path):
     r1 = _train_run(tmp_path)
     r2 = _train_run(tmp_path)
     assert r1[1]["loss"] == r2[1]["loss"]  # exact float determinism on CPU
-    assert r1[2]["val_acc1"] == r2[2]["val_acc1"
-
-
-def test_e2e_writes_csv(tmp_path):
-    cfg, s, v = _train_run(tmp_path)
-    csvf = Path(tmp_path / "ckpt" / "results.csv")
-    assert csvf.exists()
-    rows = csvf.read_text().strip().splitlines()
-    assert len(rows) >= 2  # header + at least one epoch
+    assert r1[2]["val_acc1"] == r2[2]["val_acc1"]
 ```
 
 - [ ] **Step 3: Run, verify passes**
 
 Run: `pytest tests/test_e2e.py -v`
-Expected: PASS (trainer + tiny loader works, loss finite, csv written).
+Expected: PASS (trainer + tiny loader works, loss finite, determinism holds).
 
 - [ ] **Step 4: Commit**
 
@@ -919,7 +914,7 @@ git commit -m "test: block unit tests (shortcut/SE/ECA/DropPath)"
 
 **Interfaces:**
 - Consumes: `Config.as_dict()`.
-- Produces: per-epoch `results.csv` row; `<out_dir>/config.yaml` dump.
+- Produces: per-epoch `results.csv` row; `<out_dir>/config.json` dump. Extends `tests/test_e2e.py` with a csv-content assertion.
 
 - [ ] **Step 1: Implement results.csv in Trainer**
 
@@ -927,8 +922,9 @@ Add to `Trainer.__init__`:
 
 ```python
 self.results_csv = Path(out_dir) / "results.csv"
-self._csv_written_header = False
-self._csv_meta = {"dataset": None, "arch": None, "seed": None}
+self._csv_ts = ""
+self._csv_meta = {"dataset": None, "arch": None, "seed": None,
+                  "attn": "", "shortcut": ""}
 ```
 
 Add a helper on the Trainer to log one row, set via `train.py` before the loop:
@@ -940,22 +936,25 @@ def write_results_row(self, epoch, stats, val_stats, lr):
     with open(self.results_csv, "a", newline="") as f:
         w = csv.writer(f)
         if not csv_exists:
-            w.writerow(["dataset","arch","seed","epoch","schedule","attn","shortcut",
-                        "lr","train_loss","train_acc1","val_loss","val_acc1",
-                        "mixup_alpha","cutmix_alpha","label_smoothing"])
+            w.writerow(["timestamp","dataset","arch","seed","epoch","schedule",
+                        "attn","shortcut","lr","train_loss","train_acc1",
+                        "val_loss","val_acc1","mixup_alpha","cutmix_alpha",
+                        "label_smoothing","checkpoint"])
         w.writerow([
-            self._csv_meta["dataset"], self._csv_meta["arch"],
-            self._csv_meta["seed"], epoch,
-            self.sched.__class__.__name__,
-            getattr(self, "_csv_attn", ""), getattr(self, "_csv_shortcut", ""),
-            lr, stats["loss"], stats["acc1"], val_stats["val_loss"], val_stats["val_acc1"],
+            self._csv_ts, self._csv_meta["dataset"], self._csv_meta["arch"],
+            self._csv_meta["seed"], epoch, self.sched.__class__.__name__,
+            self._csv_meta["attn"], self._csv_meta["shortcut"], lr,
+            stats["loss"], stats["acc1"], val_stats["val_loss"], val_stats["val_acc1"],
             self.mixup_alpha, self.cutmix_alpha, self.label_smoothing,
             (self.ckpt_dir / "best.pt").name if (self.ckpt_dir / "best.pt").exists() else "last.pt",
         ])
         f.flush()
 ```
 
-(Use the full 17-column list from the spec; values from `val` dict, `stats`, and meta.)
+(Exactly 17 columns: timestamp, dataset, arch, seed, epoch, schedule, attn,
+shortcut, lr, train_loss, train_acc1, val_loss, val_acc1, mixup_alpha,
+cutmix_alpha, label_smoothing, checkpoint. Call `write_results_row` once per
+validation epoch from `train.py`.)
 
 - [ ] **Step 2: Dump resolved config in train.py and eval.py**
 
@@ -969,15 +968,41 @@ Path(cfg.train.out_dir).mkdir(parents=True, exist_ok=True)
 (Path(cfg.train.out_dir) / "config.json").write_text(json.dumps(full, indent=2))
 ```
 
-Set trainer csv meta before loop:
+Set trainer meta and timestamp before the loop, and call `write_results_row`
+at each validation step (right where `val_acc1` is logged):
 
 ```python
-trainer._csv_meta = {"dataset": cfg.data.name, "arch": cfg.model.arch, "seed": cfg.train.seed}
+import time
+trainer._csv_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+trainer._csv_meta = {"dataset": cfg.data.name, "arch": cfg.model.arch,
+                     "seed": cfg.train.seed, "attn": cfg.model.attention,
+                     "shortcut": cfg.model.shortcut}
+...
+# inside the validation branch, after computing v:
+trainer.write_results_row(epoch, stats, v, opt.param_groups[0]["lr"])
 ```
 
-- [ ] **Step 3: Validate with e2e and smoke**
+- [ ] **Step 3: Add the csv-content assertion to `tests/test_e2e.py`**
 
-Run: `pytest tests/test_e2e.py -v` (csv check)
+Append to `tests/test_e2e.py`:
+
+```python
+def test_e2e_writes_csv(tmp_path):
+    import csv
+    from pathlib import Path
+    cfg, s, v = _train_run(tmp_path)   # runs trainer, which calls write_results_row
+    csvf = Path(tmp_path / "ckpt" / "results.csv")
+    assert csvf.exists()
+    rows = list(csv.reader(csvf.open()))
+    assert rows[0][0] == "timestamp"  # header present
+    assert len(rows) >= 2             # header + >=1 epoch row
+    assert rows[-1][4] == "1"         # last epoch index
+
+Note: `test_e2e_writes_csv` needs the trainer path to call `write_results_row`
+during `_train_run`. Because csv-writing is wired through `train.py`, add a
+direct call in `_train_run` after the loop so the test is self-contained:
+`trainer.write_results_row(1, s, v, 0.01)` using the helper directly.
+```
 Run: `python -m pyflakes scripts/train.py` (or `python -m py_compile scripts/train.py script/eval.py`) — no syntax errors.
 Expected: pass / no errors.
 
@@ -1031,8 +1056,15 @@ for s in 1 2 3; do python scripts/train.py --config configs/cifar10_resnet20.yam
 | configs/*.yaml | what it tests |
 |---|---|
 | `configs/cifar10_resnet20.yaml` | CIFAR-10 baseline, Shortcut A |
+| `configs/cifar10_resnet20_se.yaml` | CIFAR-10 + SE |
+| `configs/cifar10_resnet20_se_ecadrop_mix.yaml` | CIFAR-10 + SE + ECA + DropPath + Mixup |
 | `configs/cifar10_resnet56_ablate_optionB.yaml` | shortcut ablate A→B |
-| ... (all 10 configs) |
+| `configs/cifar10_resnet110_optionA.yaml` | deep CIFAR-110 baseline |
+| `configs/cifar100_resnet56_se_mix.yaml` | CIFAR-100 + SE + Mixup |
+| `configs/imagenet_resnet50_baseline.yaml` | ImageNet R50 baseline |
+| `configs/imagenet_resnet50.yaml` | ImageNet R50 |
+| `configs/imagenet_resnet50_deepstem_resnetd_se.yaml` | R50 DeepStem + ResNet-D + SE |
+| `configs/imagenet_resnet101_deepstem_resnetd_eca_dpr.yaml` | R101 DeepStem + ResNet-D + ECA + DropPath |
 
 ## Dev workflow
 pytest -q        # run test suite

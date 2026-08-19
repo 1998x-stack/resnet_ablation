@@ -19,6 +19,8 @@ class DropPath(nn.Module):
         if self.drop_prob == 0.0 or not self.training:
             return x
         keep = 1.0 - self.drop_prob
+        if self.drop_prob >= 1.0:
+            return torch.zeros_like(x)
         # (N, 1, 1, 1) broadcast
         mask = torch.empty(x.size(0), 1, 1, 1, device=x.device, dtype=x.dtype).bernoulli_(keep)
         return x / keep * mask

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, yaml, json, time, torch
+import argparse, json, time, torch
 from pathlib import Path
 from loguru import logger
 from resnet_ablation.config import Config
@@ -11,9 +11,7 @@ from resnet_ablation.models.factory import build_model
 
 
 def load_config(path: str) -> Config:
-    with open(path, "r") as f:
-        d = yaml.safe_load(f)
-    return Config(**d)
+    return Config.from_yaml(path)
 
 
 def main():

@@ -64,8 +64,8 @@ class Trainer:
         if extra and extra.get("is_best", False):
             torch.save(state, self.ckpt_dir / "best.pt")
 
-    def load(self, path: str) -> int:
-        """Load a checkpoint into model/optimizer/scheduler/scaler; return last epoch."""
+    def load(self, path: str) -> tuple:
+        """Load a checkpoint into model/optimizer/scheduler/scaler; return (last_epoch, best_acc)."""
         ckpt = torch.load(path, map_location="cpu")
         self.model.load_state_dict(ckpt["model"])
         self.optimizer.load_state_dict(ckpt["opt"])
@@ -76,7 +76,7 @@ class Trainer:
         except Exception:
             pass
         logger.info(f"Loaded checkpoint from {path}")
-        return ckpt.get("epoch", 0)
+        return ckpt.get("epoch", 0), ckpt.get("extra", {}).get("best_acc", 0.0)
 
     def _maybe_augment(self, images: torch.Tensor, targets: torch.Tensor):
         """根据 alpha 启用 Mixup/CutMix；当两者都>0时随机二选一。"""
@@ -157,7 +157,7 @@ class Trainer:
             bs = images.size(0)
             loss_sum += loss.item() * bs
             acc1_sum += corrects[0].item()
-            if acc5_sum is not None and len(corrects) > 1:
+            if len(corrects) > 1:
                 acc5_sum += corrects[1].item()
             n += bs
         res = {"val_loss": loss_sum / n, "val_acc1": acc1_sum / n}

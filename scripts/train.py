@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, yaml, json, time
+import argparse, json, time
 from pathlib import Path
 import torch
 from torch.optim import SGD
@@ -14,9 +14,7 @@ from resnet_ablation.models.factory import build_model
 
 
 def load_config(path: str) -> Config:
-    with open(path, "r") as f:
-        d = yaml.safe_load(f)
-    return Config(**d)
+    return Config.from_yaml(path)
 
 
 def main():
@@ -78,10 +76,10 @@ def main():
                          "shortcut": cfg.model.shortcut}
 
     start_epoch = 0
-    if cfg.train.resume:
-        start_epoch = trainer.load(cfg.train.resume)
-
     best_acc = 0.0
+    if cfg.train.resume:
+        start_epoch, best_acc = trainer.load(cfg.train.resume)
+
     topk = (1, 5) if cfg.data.name == "imagenet" else (1,)
     for epoch in range(start_epoch, cfg.train.epochs):
         stats = trainer.train_one_epoch(epoch, train_loader)
@@ -99,7 +97,7 @@ def main():
             trainer.tb.add_scalar("lr", opt.param_groups[0]["lr"], epoch)
             is_best = v["val_acc1"] > best_acc
             best_acc = max(best_acc, v["val_acc1"])
-            trainer.save(epoch, {"is_best": is_best})
+            trainer.save(epoch, {"is_best": is_best, "best_acc": best_acc})
             trainer.write_results_row(epoch, stats, v, opt.param_groups[0]["lr"])
 
     logger.info("Training done.")

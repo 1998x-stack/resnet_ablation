@@ -65,3 +65,31 @@ def test_e2e_writes_csv(tmp_path):
     assert rows[0][0] == "timestamp"  # header present
     assert len(rows) >= 2             # header + >=1 epoch row
     assert rows[-1][4] == "1"         # last epoch index
+
+
+def test_e2e_best_acc_roundtrip(tmp_path):
+    """best_acc must round-trip through save -> load and default to 0.0 when absent."""
+    set_seed(0)
+    cfg = Config()
+    cfg.train.amp = False
+    cfg.model.arch = "resnet20_cifar"
+    cfg.model.num_classes = 10
+    out = str(tmp_path / "ckpt")
+    tb = str(tmp_path / "runs")
+    model = build_model(cfg)
+    opt = SGD(model.parameters(), lr=0.01)
+    sched = build_scheduler(opt, cfg.optim, cfg.train.epochs)
+    trainer = Trainer(model, opt, sched, torch.device("cpu"),
+                      out_dir=out, tb_dir=tb, amp=False, num_classes=10)
+
+    # save a checkpoint carrying best_acc, then restore it via load
+    trainer.save(3, {"is_best": True, "best_acc": 0.75})
+    epoch, best_acc = trainer.load(str(Path(out) / "last.pt"))
+    assert epoch == 3
+    assert best_acc == 0.75
+
+    # backward-compat: a checkpoint without extra.best_acc defaults to 0.0
+    trainer.save(4, {"is_best": False})
+    epoch, best_acc = trainer.load(str(Path(out) / "last.pt"))
+    assert epoch == 4
+    assert best_acc == 0.0

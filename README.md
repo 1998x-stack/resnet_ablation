@@ -1,203 +1,100 @@
-# ResNet Ablation (Pluggable) / 可插拔 ResNet 消融库
+# ResNet Ablation / 可插拔 ResNet 消融实验库
 
-> A pluggable, from-scratch PyTorch ResNet library for controlled ablation studies.
-> 一个从零实现、可插拔配置的 PyTorch ResNet 消融实验库。
+A from-scratch PyTorch implementation of CIFAR-style and ImageNet-style ResNet with configurable shortcut, stem, downsampling, SE/ECA attention, stochastic depth and augmentation. Designed for controlled experiments; **the shipped configurations and training pipeline are not a verified reproduction of the original papers**.
 
----
+一个从零实现、面向可控消融实验的 PyTorch ResNet 项目。支持 CIFAR/ImageNet 网络、注意力、随机深度和可配置训练流程。请注意：仓库中的示例配置及训练流程**尚未经过论文级复现验证**。
 
-## What it is（简介）
+> **Current review / 当前审查状态 (2026-09-21):** [Paper-to-code audit, known issues, priorities and acceptance gates](docs/REVIEW_2026-09-21.md). The accompanying PR corrects the CIFAR DropPath block count and adds regression tests. The other listed issues remain open; full tests and benchmark training have not been executed as part of this review.
 
-A from-scratch PyTorch 3.9 ResNet implementation designed for *isolating one variable at a time* in ablation studies. Shortcut type, stem, downsampling, attention, stochastic depth, and data augmentation are all independently togglable through YAML config, so you can measure the contribution of each technique without touching model code. The library ships a strict, validated configuration system, per-epoch structured logging (`results.csv`), a resolved-config reproducibility dump (`config.json`), and a CPU-runnable pytest suite so the whole pipeline can be verified before launching long runs.
+## Capabilities and limitations / 功能与限制
 
-一个从零实现、面向消融研究的 PyTorch ResNet 库：短接类型（shortcut）、主干（stem）、下采样、注意力、随机深度与数据增强均可在 YAML 配置中独立开关，从而在不改动模型代码的前提下隔离并量化每一处改进的贡献。库内置严格校验的配置体系、逐 epoch 结构化日志（`results.csv`）、解析后配置转储（`config.json`）以及可在 CPU 上运行的 pytest 测试套件，保证长训练前的全流程可验证性。
+| Component | Implemented behavior | Important qualification |
+| --- | --- | --- |
+| CIFAR ResNet | ResNet-20/56/110 with `6n+2` weighted layers; `3n` BasicBlocks | Fixed DropPath scheduling counts blocks, not individual convolutional layers. |
+| ImageNet ResNet | 18/34 BasicBlock and 50/101/152 Bottleneck variants | Bottleneck downsamples in its 3×3 convolution (v1.5-style layout), not an exact implementation of every original-paper detail. |
+| Shortcut | A: strided identity with zero padding when needed; B: projection when dimensions change | **C currently aliases B in `BasicBlock`, not the original paper's projection on every shortcut.** Do not treat B vs C as an independent ablation. |
+| Stem / downsampling | Standard 7×7 ImageNet stem, optional three-3×3 deep stem; `proj`/`avgproj` | `avgproj` is implemented for the Bottleneck shortcut path, not the BasicBlock path. |
+| Attention | None, SE, ECA; configurable SE ratio | Attention changes model capacity. Record parameters and computation alongside accuracy. |
+| DropPath | Linearly distributed per residual block; final CIFAR block reaches configured maximum after PR fix | `drop_path_rate` is not the same as standard Dropout. |
+| Augmentation | Standard/strong transforms, Mixup, CutMix, label smoothing | With Mixup/CutMix, current `train_acc1` is computed against **original hard labels** and is not conventional training accuracy. |
+| Training | SGD, per-epoch warmup + cosine/multistep scheduling, AMP, clipping, TensorBoard, checkpoints | Resume can replay an epoch; latest checkpoint is written only on validation epochs; saved RNG state is incomplete. See review before using for controlled interrupted runs. |
+| Metrics / metadata | `results.csv` on validation epochs; resolved `config.json` | The logged epoch LR is currently read **after** the scheduler step; `config.json` does not by itself guarantee reproducibility. |
+| Validation | CIFAR training loader plus CIFAR **test** loader returned as `val_loader` | Current training evaluates repeatedly on the test set. Create a held-out validation split before tuning hyperparameters. |
+| Configuration | YAML key/enum checking and model-level CIFAR depth/width/DropPath checks | Not all numeric ranges, class counts, model/data combinations or optimizer choices are validated; training entry point currently constructs SGD. |
 
-## Feature map / 功能总览
+## Repository map / 项目结构
 
-Capability matrix — every row is independently toggleable via YAML:
+- `resnet_ablation/models/`: BasicBlock/Bottleneck, SE/ECA, CIFAR and ImageNet architectures, model factory.
+- `resnet_ablation/config.py`, `configs/`: configuration dataclasses, loader and example YAML files.
+- `resnet_ablation/data.py`, `augment.py`: dataset transforms, Mixup and CutMix.
+- `resnet_ablation/engine/`, `scheduler.py`: training, evaluation, logging, checkpoints and LR policies.
+- `scripts/train.py`, `scripts/eval.py`: command-line entry points.
+- `tests/`: unit tests and a small synthetic-data end-to-end test; added DropPath regression tests live in `tests/test_cifar_drop_path_schedule.py`.
+- `docs/REVIEW_2026-09-21.md`: paper-to-implementation comparison, risk log, experimental controls and verification plan.
 
-- **Shortcuts**（短连接）A / B / C — Option A identity / B projection / C padding variants.
-- **Stems**（主干）`cifar` / `imagenet_standard` / `imagenet_deep` — standard 7×7 or 3×3×3 DeepStem.
-- **Downsampling**（下采样）`proj` (1×1 conv) / `avgproj` (ResNet-D avg-pool + 1×1).
-- **Attention**（注意力）`none` / `se` / `eca` (+ `se_ratio`).
-- **DropPath**（随机深度）`drop_path_rate` — Stochastic Depth, linearly scheduled across blocks.
-- **Mixup / CutMix / Label Smoothing**（数据增强与标签平滑）— toggled via `mixup_alpha` / `cutmix_alpha` / `label_smoothing`（二者同时>0 时随机二选一；有 mix/cut 时采用 SoftTargetCE）.
-- **AMP**（自动混合精度）+ gradient clipping.
-- **Resume**（断点续训）from an existing checkpoint.
-- **`results.csv`** per-epoch logging（逐 epoch 结构化日志）.
-- **`config.json`** resolved-config dump including runtime environment（含运行环境的配置转储，保障可复现）.
-- **Linear warmup LR schedule**（线性预热学习率）with **per-epoch stepping**（逐 epoch 步进）.
-- **CPU test suite**（CPU pytest 测试套件）for the whole pipeline.
+## Quick start / 快速开始
 
-## Project structure / 项目结构（module map）
-
-| Path | Responsibility | 职责 |
-|------|----------------|------|
-| `resnet_ablation/config.py` | strict `Config` dataclasses + YAML loading / enum validation | 配置校验 |
-| `resnet_ablation/models/blocks.py` | Basic/Bottleneck blocks, Shortcut A/B/C, attention, DropPath | 网络基础块 |
-| `resnet_ablation/models/resnet_cifar.py` | CIFAR-style ResNet (6n+2), Option A shortcuts | CIFAR 网络 |
-| `resnet_ablation/models/resnet_imagenet.py` | ImageNet-style ResNet18–152, Option B | ImageNet 网络 |
-| `resnet_ablation/models/factory.py` | `build_model(cfg)` — pluggable model construction | 模型工厂/构建 |
-| `resnet_ablation/engine/trainer.py` | trainer: AMP / checkpoint / `results.csv` | 训练器 |
-| `resnet_ablation/engine/evaluator.py` | validation / evaluation loop | 评估器 |
-| `resnet_ablation/data.py` | dataset & dataloader construction, transforms | 数据加载 |
-| `resnet_ablation/augment.py` | Mixup / CutMix / `rand_bbox` | 数据增强 |
-| `resnet_ablation/scheduler.py` | linear warmup + cosine / multistep LR | 学习率调度 |
-| `resnet_ablation/metrics.py` | Top-k accuracy metrics | 指标计算 |
-| `resnet_ablation/losses.py` | loss functions (incl. SoftTargetCE) | 损失函数 |
-| `resnet_ablation/logger.py` | loguru setup | 日志 |
-| `resnet_ablation/utils.py` | seed / device / param counting helpers | 工具函数 |
-| `scripts/train.py` | CLI training entry point | 训练入口 |
-| `scripts/eval.py` | CLI evaluation entry point | 评估入口 |
-| `tests/` | CPU pytest suite (config / model / scheduler / metrics / e2e) | 测试套件 |
-| `configs/` | 10 ready-made ablation YAML configs | 消融实验配置 |
-
-## Quickstart / 快速开始
-
-Install the package (editable):
+Run from the repository root with a compatible Python/PyTorch environment. The CIFAR training command **downloads the dataset** if it is not already present, and the example config is a long training run; tests are the faster initial smoke check.
 
 ```bash
-pip install -e .
+python3 -m pip install -e .
+python3 -m pytest -q
+python3 -m compileall -q resnet_ablation scripts tests
 ```
 
-Train a single run (CIFAR-10 ResNet-20 baseline):
+CIFAR-10 ResNet-20 example:
 
 ```bash
-python scripts/train.py --config configs/cifar10_resnet20.yaml
+python3 scripts/train.py --config configs/cifar10_resnet20.yaml
 ```
 
-Evaluate a trained checkpoint:
+Evaluate an existing model using an explicitly selected checkpoint:
 
 ```bash
-python scripts/eval.py --config configs/cifar10_resnet20.yaml --ckpt resnet_ablation/checkpoints/cifar10_resnet20/last.pt
+python3 scripts/eval.py \
+  --config configs/cifar10_resnet20.yaml \
+  --ckpt resnet_ablation/checkpoints/cifar10_resnet20/last.pt
 ```
 
-Run multiple seeds for variance analysis (`--out-suffix`, `--seed` override config):
+Run different seed/output combinations **sequentially**, avoiding checkpoint/log collisions:
 
 ```bash
-for s in 1 2 3; do
-  python scripts/train.py --config configs/cifar10_resnet20.yaml --seed $s --out-suffix "s$s"
+for seed in 1 2 3; do
+  python3 scripts/train.py \
+    --config configs/cifar10_resnet20.yaml \
+    --seed "$seed" \
+    --out-suffix "seed_${seed}"
 done
 ```
 
-Outputs produced per run (under `train.out_dir`):
-- `last.pt` / `best.pt` — checkpoints（断点）
-- `results.csv` — per-epoch structured log（逐 epoch 日志）
-- `config.json` — resolved config + runtime env（解析后配置与运行环境）
-- TensorBoard logs under `train.tb_dir`（TensorBoard 日志）
+`--out-suffix` appends a suffix to the `train.out_dir` and `train.tb_dir` defined by the YAML file. Choose independent output directories for all compared conditions. Checkpoints are `last.pt` and (when a validation improvement is recorded) `best.pt` in the run directory. `config.json` records the resolved configuration and basic runtime metadata; `results.csv` gets one row per **validation** epoch, not necessarily every training epoch. For reproducible runs, also record dependency versions, device, code commit, dataset split, transforms and independent seeds.
 
-## Config reference / 配置项
+**Resume limitation / 断点恢复限制:** The current entry point may repeat the saved epoch and does not restore all RNG state. Do not rely on bitwise equivalence between uninterrupted and resumed training until the P0 fixes and recovery tests in the review document have landed.
 
-Configuration is grouped into `model` / `optim` / `train` / `data`, validated against the whitelist in `resnet_ablation/config.py`. Values marked *enum* are strictly checked.
+## Config reference / 配置速查
 
-### model / 模型
+Four top-level groups: `model`, `optim`, `train`, `data`. Unknown keys and selected enum values are rejected, but additional numerical checks remain to be implemented. Verify requested optimizer against `scripts/train.py`, which currently instantiates SGD regardless of the config's `optim.name` value.
 
-| Field | Default | Allowed values |
-|-------|---------|----------------|
-| `arch` | `resnet20_cifar` | `resnet20_cifar` / `resnet56_cifar` / `resnet110_cifar` / `resnet18` / `resnet34` / `resnet50` / `resnet101` / `resnet152` |
-| `num_classes` | `10` | any int |
-| `shortcut` | `A` | `A` / `B` / `C` |
-| `stem` | `cifar` | `cifar` / `imagenet_standard` / `imagenet_deep` |
-| `downsample` | `proj` | `proj` / `avgproj` |
-| `width_mult` | `1.0` | any float |
-| `drop_path_rate` | `0.0` | any float |
-| `attention` | `none` | `none` / `se` / `eca` |
-| `se_ratio` | `0.25` | any float |
+| Group | Principal options | Notes |
+| --- | --- | --- |
+| `model` | `arch`, `num_classes`, `shortcut`, `stem`, `downsample`, `width_mult`, `attention`, `se_ratio`, `drop_path_rate` | CIFAR architecture has a validated `6n+2` depth; B/C alias issue applies to `BasicBlock`. |
+| `optim` | `name`, `lr`, `momentum`, `weight_decay`, `nesterov`, `warmup_epochs`, `sched`, `milestones`, `gamma` | Supported `sched` values: `cosine`, `multistep`; warmup/cosine horizon needs further verification. |
+| `train` | `epochs`, `batch_size`, `num_workers`, `amp`, `clip_grad_norm`, `val_interval`, `out_dir`, `tb_dir`, `resume`, `seed`, `label_smoothing` | `resume` points to an existing checkpoint. Load checkpoints only from trusted sources. |
+| `data` | `name`, `root`, `aug`, `mixup_alpha`, `cutmix_alpha` | Supported names: `cifar10`, `cifar100`, `imagenet`; `aug`: `standard`, `strong`. |
 
-### optim / 优化器与调度
+Representative existing configurations include `configs/cifar10_resnet20.yaml` (baseline), `configs/cifar10_resnet20_se.yaml` (SE), `configs/cifar10_resnet110_optionA.yaml` (deeper CIFAR network), `configs/cifar100_resnet56_se_mix.yaml` (multi-factor), `configs/imagenet_resnet50_baseline.yaml` (ImageNet baseline) and `configs/imagenet_resnet101_deepstem_resnetd_eca_dpr.yaml` (multi-factor). **Multi-factor configurations are examples, not one-variable causal ablations.** Check each YAML file rather than assuming the filename encodes every difference.
 
-| Field | Default | Allowed values |
-|-------|---------|----------------|
-| `name` | `sgd` | any (optimizer name) |
-| `lr` | `0.1` | any float |
-| `momentum` | `0.9` | any float |
-| `weight_decay` | `1e-4` | any float |
-| `nesterov` | `true` | `true` / `false` |
-| `warmup_epochs` | `5` | any int (0 disables warmup) |
-| `sched` | `cosine` | `cosine` / `multistep` |
-| `milestones` | `[100, 150]` | any int list |
-| `gamma` | `0.1` | any float |
+## Experiment design / 消融实验设计
 
-### train / 训练
+Hold dataset and split, preprocessing, model depth/width, optimizer, epoch count, LR trajectory, batch size and seed set fixed while changing one intended variable. For example, compare `attention=none` vs `attention=se` on the same CIFAR-10 ResNet-20 base config, then run an independent `none` vs `eca` pair. For shortcut A vs B, report the projection's parameter-count change rather than calling the parameter budgets identical. Compare `proj` vs `avgproj` separately from a deep-stem change.
 
-| Field | Default | Allowed values |
-|-------|---------|----------------|
-| `epochs` | `200` | any int |
-| `batch_size` | `128` | any int |
-| `num_workers` | `4` | any int |
-| `amp` | `true` | `true` / `false` |
-| `clip_grad_norm` | `1.0` | any float or `null` |
-| `log_interval` | `50` | any int |
-| `val_interval` | `1` | any int |
-| `out_dir` | `resnet_ablation/checkpoints` | any path |
-| `resume` | `null` | checkpoint path or `null` |
-| `seed` | `42` | any int |
-| `tb_dir` | `runs` | any path |
-| `label_smoothing` | `0.0` | any float |
+Use a held-out training/validation split for tuning and reserve the test set for final evaluation. Report individual seeds, mean and dispersion, parameter count, compute, training time and complete experimental configuration. **No benchmark scores, publication-level reproduction or CI pass are claimed here.** Full paper-linked experiment matrix and acceptance criteria: [review](docs/REVIEW_2026-09-21.md).
 
-### data / 数据
+## Paper references / 论文依据
 
-| Field | Default | Allowed values |
-|-------|---------|----------------|
-| `name` | `cifar10` | `cifar10` / `cifar100` / `imagenet` |
-| `root` | `./data` | any path |
-| `aug` | `standard` | `standard` / `strong` |
-| `mixup_alpha` | `0.0` | any float (>0 enables Mixup) |
-| `cutmix_alpha` | `0.0` | any float (>0 enables CutMix) |
+- He et al., [Deep Residual Learning for Image Recognition](https://ar5iv.labs.arxiv.org/html/1512.03385): original residual formulation, CIFAR `6n+2` and shortcut A/B/C descriptions.
+- He et al., [Identity Mappings in Deep Residual Networks](https://ar5iv.labs.arxiv.org/html/1603.05027): pre-activation is a **separate** architecture; current blocks use post-addition ReLU.
+- Hu et al., [Squeeze-and-Excitation Networks](https://ar5iv.labs.arxiv.org/html/1709.01507): SE channel reweighting.
+- Wang et al., [ECA-Net](https://ar5iv.labs.arxiv.org/html/1910.03151): lightweight local channel interaction.
 
-## Ablation experiments / 消融实验表
-
-All 10 shipped configs — each isolates a specific technique:
-
-| configs/*.yaml | What it ablated / 消融内容 |
-|----------------|----------------------------|
-| `configs/cifar10_resnet20.yaml` | CIFAR-10 ResNet-20 baseline, Shortcut A — 基线 |
-| `configs/cifar10_resnet20_se.yaml` | CIFAR-10 ResNet-20 + SE attention — SE 注意力 |
-| `configs/cifar10_resnet20_se_ecadrop_mix.yaml` | CIFAR-10 + ECA + DropPath + Mixup (strong aug) — ECA+随机深度+Mixup |
-| `configs/cifar10_resnet56_ablate_optionB.yaml` | Shortcut ablation A→B on ResNet-56 — 短连接 A→B 消融 |
-| `configs/cifar10_resnet110_optionA.yaml` | Deep CIFAR baseline (ResNet-110) — 深度基线 |
-| `configs/cifar100_resnet56_se_mix.yaml` | CIFAR-100 ResNet-56 + SE + Mixup — CIFAR-100 增强组合 |
-| `configs/imagenet_resnet50_baseline.yaml` | ImageNet ResNet-50 baseline (standard stem, no attn) — ImageNet 基线 |
-| `configs/imagenet_resnet50.yaml` | ImageNet ResNet-50 (minimal override of baseline) — ImageNet R50 |
-| `configs/imagenet_resnet50_deepstem_resnetd_se.yaml` | R50 DeepStem + ResNet-D + SE — DeepStem+ResNet-D+SE |
-| `configs/imagenet_resnet101_deepstem_resnetd_eca_dpr.yaml` | R101 DeepStem + ResNet-D + ECA + DropPath — R101 深度组合 |
-
-## Reproducibility & metrics / 可复现性与指标
-
-**`results.csv`** — one row per validation epoch. Columns:
-`timestamp, dataset, arch, seed, epoch, schedule, attn, shortcut, lr, train_loss,
-train_acc1, val_loss, val_acc1, mixup_alpha, cutmix_alpha, label_smoothing,
-checkpoint`. This makes per-run and cross-run comparisons easy and gives you the
-exact hyper-parameter snapshot that produced each number.
-
-**`config.json`** — written to `out_dir` at launch, containing the *resolved*
-configuration (after any `--seed` / `--out-suffix` overrides) plus a `runtime`
-block (`device`, `timestamp`, `seed`). This is the reproducibility anchor: any
-row in `results.csv` can be traced back to the exact config that generated it.
-
-逐 epoch 结构化日志：`results.csv` 每个验证 epoch 追加一行，记录时间戳、数据集、架构、种子、epoch、调度器、注意力、短连接、学习率、训练/验证损失与 acc1，以及 mixup/cutmix/标签平滑等增强参数与检查点文件名。`config.json` 在训练开始时转储解析后的完整配置（含命令行覆盖）与运行环境（设备、时间戳、种子），确保任何一条指标都能追溯到其精确配置。
-
-## Dev workflow / 开发
-
-Run the CPU test suite:
-
-```bash
-python3 -m pytest -q
-```
-
-Byte-compile check across packages:
-
-```bash
-python3 -m compileall resnet_ablation scripts tests
-```
-
-Optional linting (may not be installed):
-
-```bash
-ruff check .      # optional; run `pip install ruff` if missing
-```
-
-## Design doc / 设计文档
-
-See **`ChatGPT-ResNet 项目构建.md`** (in the repo root) for the original
-architecture walkthrough and design rationale (in Chinese) —
-从零构建 ResNet 的架构讲解与设计思路（中文设计文档）。
+For the original Chinese-language architecture walkthrough, see [`ChatGPT-ResNet 项目构建.md`](ChatGPT-ResNet%20%E9%A1%B9%E7%9B%AE%E6%9E%84%E5%BB%BA.md). That document is historical design context; implementation and review notes above describe the present code state.

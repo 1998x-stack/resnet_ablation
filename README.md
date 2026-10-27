@@ -1,5 +1,25 @@
 # ResNet Ablation / 可插拔 ResNet 消融实验库
 
+## Factory Mode 论文研究分支（2026-10）
+
+本分支增加独立、可审计的 ResNet 原论文实验入口。旧的 scripts/train.py 仍然保留；两者的训练曲线与实验结果必须注明 recipe，不得直接混称。
+
+- [论文逐节映射 / paper-to-code](docs/paper/01_PAPER_TO_CODE.md)
+- [消融矩阵、控制变量与验收](docs/paper/02_ABLATION_MATRIX.md)
+- [执行、日志、可视化、断点与最终测试](docs/paper/03_RUNBOOK.md)
+- [CIFAR Plain/Residual 深度实验](configs/paper/cifar10_depth_matrix.yaml)
+- [ImageNet Shortcut A/B/C](configs/paper/imagenet_shortcut_matrix.yaml)
+
+预览（不会训练）： 
+
+    python -m resnet_ablation.research.sweep --manifest configs/paper/cifar10_depth_matrix.yaml
+
+实际训练需显式加 --execute；生成 JSONL/TensorBoard/Loguru 记录。通过 research/report.py 聚合多种子并绘图。原论文 CIFAR 64k 调度必须选择 --schedule paper_cifar_64k --steps 64000。
+
+**尚无本分支实际的 CIFAR/ImageNet 完整训练数据或论文级复现分数。** CIFAR per-channel normalization 与原论文 per-pixel mean 存在明确差异，见论文映射文档。
+
+
+
 A from-scratch PyTorch implementation of CIFAR-style and ImageNet-style ResNet with configurable shortcut, stem, downsampling, SE/ECA attention, stochastic depth and augmentation. Designed for controlled experiments; **the shipped configurations and training pipeline are not a verified reproduction of the original papers**.
 
 一个从零实现、面向可控消融实验的 PyTorch ResNet 项目。支持 CIFAR/ImageNet 网络、注意力、随机深度和可配置训练流程。请注意：仓库中的示例配置及训练流程**尚未经过论文级复现验证**。
@@ -12,7 +32,7 @@ A from-scratch PyTorch implementation of CIFAR-style and ImageNet-style ResNet w
 | --- | --- | --- |
 | CIFAR ResNet | ResNet-20/56/110 with `6n+2` weighted layers; `3n` BasicBlocks | Fixed DropPath scheduling counts blocks, not individual convolutional layers. |
 | ImageNet ResNet | 18/34 BasicBlock and 50/101/152 Bottleneck variants | Bottleneck downsamples in its 3×3 convolution (v1.5-style layout), not an exact implementation of every original-paper detail. |
-| Shortcut | A: strided identity with zero padding when needed; B: projection when dimensions change | **C currently aliases B in `BasicBlock`, not the original paper's projection on every shortcut.** Do not treat B vs C as an independent ablation. |
+| Shortcut | A: strided identity with zero padding when needed; B: projection when dimensions change | **Factory-mode branch fixed this:** C projects every residual block. The historical review refers to the older baseline. |
 | Stem / downsampling | Standard 7×7 ImageNet stem, optional three-3×3 deep stem; `proj`/`avgproj` | `avgproj` is implemented for the Bottleneck shortcut path, not the BasicBlock path. |
 | Attention | None, SE, ECA; configurable SE ratio | Attention changes model capacity. Record parameters and computation alongside accuracy. |
 | DropPath | Linearly distributed per residual block; final CIFAR block reaches configured maximum after PR fix | `drop_path_rate` is not the same as standard Dropout. |

@@ -72,6 +72,8 @@ def _run_config(config_path: str, seed: int | None) -> Config:
     cfg.validate()
     if cfg.data.mixup_alpha or cfg.data.cutmix_alpha or cfg.train.label_smoothing:
         raise ValueError("paper-control runner forbids mixup/cutmix/smoothing; use legacy extension runs")
+    if cfg.data.aug != "standard":
+        raise ValueError("paper-control data factory currently supports only standard augmentation")
     if cfg.data.name == "imagenet" and cfg.model.num_classes != 1000:
         raise ValueError("ImageNet requires num_classes=1000")
     if cfg.data.name == "cifar10" and cfg.model.num_classes != 10:

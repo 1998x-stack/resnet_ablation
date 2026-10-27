@@ -65,8 +65,9 @@ def build_plan(manifest_path: str, root: str) -> list[dict]:
             obj = copy.deepcopy(resolved)
             obj["train"]["seed"] = seed
             destination = out / spec.get("name", "matrix") / name / f"seed_{seed}"
+            config_file = out / spec.get("name", "matrix") / "_configs" / name / f"seed_{seed}.yaml"
             plan.append({"variant": name, "seed": seed, "factors_changed": sorted(changed),
-                         "config": obj, "config_file": str(destination / "resolved.yaml"),
+                         "config": obj, "config_file": str(config_file),
                          "run_dir": str(destination), "schedule": spec.get("schedule", "multistep_epoch"),
                          "steps": spec.get("steps"), "split_seed": spec.get("split_seed", 2026)})
     return plan

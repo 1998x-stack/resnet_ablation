@@ -272,6 +272,7 @@ def final_test(config_path: str, run_dir: str, device_str: str = "auto") -> dict
     out = Path(run_dir)
     manifest = json.loads((out / "manifest.json").read_text())
     cfg = _run_config(config_path, None)
+    cfg.train.seed = manifest["config"]["train"]["seed"]
     if hashlib.sha256(json.dumps(cfg.as_dict(), sort_keys=True).encode()).hexdigest() != manifest["config_sha256"]:
         raise ValueError("evaluation config differs from trained run")
     device = torch.device("cuda" if device_str == "auto" and torch.cuda.is_available()

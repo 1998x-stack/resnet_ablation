@@ -133,7 +133,7 @@ def plot(result: dict) -> None:
             values = [e for e in run["events"] if e["kind"] == "train_step" and key in e]
             if values:
                 ax.plot([e["step"] for e in values], [e[key] for e in values],
-                        label=f"{run[\'label\']} {stage}", alpha=0.75)
+                        label=f"{run['label']} {stage}", alpha=0.75)
                 recorded = True
     ax.set(title="Residual / shortcut RMS ratio (instrumentation proxy)",
            xlabel="Completed optimizer steps", ylabel="RMS ratio")

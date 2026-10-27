@@ -155,6 +155,11 @@ class BasicBlock(nn.Module):
         if self.residual:
             if self.downsample is not None:
                 identity = self.downsample(identity)
+            if getattr(self, "capture_statistics", False):
+                with torch.no_grad():
+                    residual_rms = out.detach().float().square().mean().sqrt().item()
+                    shortcut_rms = identity.detach().float().square().mean().sqrt().item()
+                    self.last_residual_ratio = residual_rms / max(shortcut_rms, 1e-12)
             out = out + identity
         out = self.relu(out)
         return out
@@ -219,6 +224,11 @@ class Bottleneck(nn.Module):
         if self.residual:
             if self.downsample is not None:
                 identity = self.downsample(identity)
+            if getattr(self, "capture_statistics", False):
+                with torch.no_grad():
+                    residual_rms = out.detach().float().square().mean().sqrt().item()
+                    shortcut_rms = identity.detach().float().square().mean().sqrt().item()
+                    self.last_residual_ratio = residual_rms / max(shortcut_rms, 1e-12)
             out = out + identity
         out = self.relu(out)
         return out

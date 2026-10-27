@@ -125,6 +125,24 @@ def plot(result: dict) -> None:
         fig.tight_layout()
         fig.savefig(out / f"{filename}.png", dpi=160)
         plt.close(fig)
+    fig, ax = plt.subplots(figsize=(9, 5))
+    recorded = False
+    for run in result["runs"]:
+        for stage in ("layer1", "layer2", "layer3", "layer4"):
+            key = f"residual/{stage}_rms_ratio"
+            values = [e for e in run["events"] if e["kind"] == "train_step" and key in e]
+            if values:
+                ax.plot([e["step"] for e in values], [e[key] for e in values],
+                        label=f"{run[\'label\']} {stage}", alpha=0.75)
+                recorded = True
+    ax.set(title="Residual / shortcut RMS ratio (instrumentation proxy)",
+           xlabel="Completed optimizer steps", ylabel="RMS ratio")
+    ax.grid(True, alpha=0.2)
+    if recorded:
+        ax.legend(fontsize=7)
+    fig.tight_layout()
+    fig.savefig(out / "residual_rms_ratio.png", dpi=160)
+    plt.close(fig)
     groups = [x for x in result["summary"] if x["mean_best_val_error1"] is not None]
     if groups:
         fig, ax = plt.subplots(figsize=(9, 5))

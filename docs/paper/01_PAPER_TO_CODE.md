@@ -37,3 +37,7 @@
 - research/runner.py：训练状态、真实训练 step、JSONL、TensorBoard、checkpoint
 - research/sweep.py：多因素/多种子实验生成
 - research/report.py：比较约束、真实图表、统计
+
+## Figure 7 的新增工程代理观测
+
+models/blocks.py 以可选诊断标记采样：残差分支输出 F(x) 的 RMS 除以捷径张量的 RMS；runner.py 按 stage 输出 residual/layerX_rms_ratio 至 JSONL 与 TensorBoard，report.py 绘制 residual_rms_ratio.png。它是分析残差分支尺度的实测代理指标，**不等同论文 Figure 7 原始横纵坐标或原文统计口径**；不得据此声称完全复现 Figure 7。

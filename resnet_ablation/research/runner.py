@@ -23,6 +23,7 @@ from torch.utils.tensorboard import SummaryWriter
 from resnet_ablation.config import Config
 from .factories import (MODELS, DATASETS, OPTIMIZERS, LOSSES, SCHEDULES,
                         loader, seed_all)
+from resnet_ablation.models.blocks import BasicBlock, Bottleneck
 
 
 def _git_sha() -> str:
@@ -184,6 +185,8 @@ def run(config_path: str, run_dir: str, schedule: str, steps: int | None,
         global_step, first_epoch, best = state["global_step"], state["next_epoch"], state["best"]
         _restore_rng(state["rng"])
     log_path = out / "metrics.jsonl"
+    diagnostic_blocks = [(name, block) for name, block in model.named_modules()
+                         if isinstance(block, (BasicBlock, Bottleneck))]
     logger.info(f"factory={schedule}, arch={cfg.model.arch}, steps={target}, start_step={global_step}")
     for epoch in range(first_epoch, cfg.train.epochs):
         if global_step >= target:
@@ -202,6 +205,10 @@ def run(config_path: str, run_dir: str, schedule: str, steps: int | None,
             lr_last = lr_used
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
+            diagnose = (global_step + 1) % cfg.train.log_interval == 0
+            if diagnose:
+                for _, block in diagnostic_blocks:
+                    block.capture_statistics = True
             with torch.autocast(device_type=device.type, enabled=use_amp):
                 logits = model(x)
                 loss = criterion(logits, y)
@@ -224,11 +231,24 @@ def run(config_path: str, run_dir: str, schedule: str, steps: int | None,
                          "lr_used": lr_used, "loss": float(loss.detach()),
                          "acc1": float((logits.detach().argmax(1) == y).float().mean())}
                 event.update(last_grad)
+                # Proxy for paper Figure 7: RMS of F(x) divided by RMS of shortcut.
+                # Computed only on diagnostic steps; not the paper\'s exact statistic.
+                per_stage = {}
+                for block_name, block in diagnostic_blocks:
+                    if hasattr(block, "last_residual_ratio"):
+                        stage = block_name.split(".")[0]
+                        per_stage.setdefault(stage, []).append(block.last_residual_ratio)
+                    block.capture_statistics = False
+                for stage, values in per_stage.items():
+                    event[f"residual/{stage}_rms_ratio"] = sum(values) / len(values)
                 _event(log_path, event)
                 tb.add_scalar("step/loss", event["loss"], global_step)
                 tb.add_scalar("step/lr_used", lr_used, global_step)
                 for k, v in last_grad.items():
                     tb.add_scalar(k, v, global_step)
+                for k, v in event.items():
+                    if k.startswith("residual/"):
+                        tb.add_scalar(k, v, global_step)
         if samples == 0:
             break
         elapsed = time.perf_counter() - started

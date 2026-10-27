@@ -7,7 +7,8 @@ from typing import Optional, List, Any, Dict
 _VALID: Dict[str, Dict[str, Any]] = {
     "ModelConfig": {
         "arch": {
-            "resnet20_cifar", "resnet56_cifar", "resnet110_cifar",
+            "resnet20_cifar", "resnet32_cifar", "resnet44_cifar",
+            "resnet56_cifar", "resnet110_cifar", "resnet1202_cifar",
             "resnet18", "resnet34", "resnet50", "resnet101", "resnet152",
         },
         "shortcut": {"A", "B", "C"},
@@ -18,6 +19,8 @@ _VALID: Dict[str, Dict[str, Any]] = {
         "drop_path_rate": None,
         "attention": {"none", "se", "eca"},
         "se_ratio": None,
+        "residual": {True, False},
+        "bottleneck_stride": {"v1", "v1.5"},
     },
     "OptimConfig": {
         "name": None,
@@ -96,6 +99,8 @@ class ModelConfig:
     drop_path_rate: float = 0.0  # Stochastic Depth max global ratio
     attention: str = "none"  # none / se / eca
     se_ratio: float = 0.25  # SE reduction ratio (used when attention=se)
+    residual: bool = True
+    bottleneck_stride: str = "v1.5"
 
 
 @dataclass
@@ -192,6 +197,22 @@ class Config:
             known = _VALID[grp.__name__]
             for fld in fields(grp):
                 _check(fld.name, getattr(inst, fld.name), known.get(fld.name))
+        if self.model.num_classes < 2 or self.model.width_mult <= 0:
+            raise ValueError("num_classes >= 2 and width_mult > 0 required")
+        if not 0 <= self.model.drop_path_rate <= 1 or not 0 < self.model.se_ratio <= 1:
+            raise ValueError("invalid drop_path_rate/se_ratio")
+        if self.train.epochs <= 0 or self.train.batch_size <= 0 or self.train.num_workers < 0:
+            raise ValueError("invalid epochs/batch_size/workers")
+        if self.train.val_interval <= 0 or self.train.log_interval <= 0:
+            raise ValueError("validation/log intervals must be > 0")
+        if self.optim.name != "sgd" or self.optim.lr <= 0 or self.optim.weight_decay < 0:
+            raise ValueError("legacy entrypoint supports positive-LR SGD only")
+        if self.data.mixup_alpha < 0 or self.data.cutmix_alpha < 0:
+            raise ValueError("mixing alphas must be >=0")
+        if self.model.arch.endswith("_cifar") and self.data.name == "imagenet":
+            raise ValueError("CIFAR backbone cannot use ImageNet data")
+        if self.model.arch in ("resnet18","resnet34") and self.model.downsample == "avgproj":
+            raise ValueError("avgproj requires Bottleneck")
 
     def as_dict(self) -> Dict[str, Any]:
         """Return a plain nested dict, json-serializable via dataclasses.asdict."""

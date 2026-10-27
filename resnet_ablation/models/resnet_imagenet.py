@@ -32,9 +32,12 @@ class ImageNetResNet(nn.Module):
                  downsample: str = "proj",         # proj / avgproj (ResNet-D)
                  attention: str = "none",
                  se_ratio: float = 0.25,
-                 drop_path_rate: float = 0.0):
+                 drop_path_rate: float = 0.0, residual: bool = True,
+                 bottleneck_stride: str = "v1.5"):
         super().__init__()
         self.in_planes = 64
+        self.residual = residual
+        self.bottleneck_stride = bottleneck_stride
 
         self.stem = _make_stem(stem)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -45,13 +48,17 @@ class ImageNetResNet(nn.Module):
         dp_iter = iter(dpr)
 
         self.layer1 = self._make_layer(block, 64,  layers[0], stride=1, shortcut=shortcut,
-                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample)
+                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample,
+                                       residual=residual, bottleneck_stride=bottleneck_stride)
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2, shortcut=shortcut,
-                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample)
+                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample,
+                                       residual=residual, bottleneck_stride=bottleneck_stride)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2, shortcut=shortcut,
-                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample)
+                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample,
+                                       residual=residual, bottleneck_stride=bottleneck_stride)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2, shortcut=shortcut,
-                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample)
+                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, downsample=downsample,
+                                       residual=residual, bottleneck_stride=bottleneck_stride)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
@@ -64,18 +71,21 @@ class ImageNetResNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def _make_layer(self, block: Type[nn.Module], planes: int, blocks: int, stride: int,
-                    shortcut: str, attention: str, se_ratio: float, dp_iter, downsample: str):
+                    shortcut: str, attention: str, se_ratio: float, dp_iter, downsample: str,
+                    residual: bool, bottleneck_stride: str):
         layers: List[nn.Module] = []
         is_bottleneck = block is Bottleneck
         # 第一个 block 可能下采样（只有 Bottleneck 支持 avgproj 下采样模式）
-        kwargs = dict(downsample_mode=downsample) if is_bottleneck else {}
+        kwargs = dict(downsample_mode=downsample, bottleneck_stride=bottleneck_stride) if is_bottleneck else {}
+        if downsample == "avgproj" and not is_bottleneck:
+            raise ValueError("avgproj requires Bottleneck")
         layers.append(block(self.in_planes, planes, stride=stride, shortcut=shortcut,
-                            attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter),
+                            attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter), residual=residual,
                             **kwargs))
         self.in_planes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.in_planes, planes, stride=1, shortcut=shortcut,
-                                attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter),
+                                attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter), residual=residual,
                                 **kwargs))
         return nn.Sequential(*layers)
 

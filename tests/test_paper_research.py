@@ -120,3 +120,16 @@ def test_sweep_plan_is_deterministic_and_separates_config_from_run_directory():
     assert len({x["run_dir"] for x in plan}) == len(plan)
     assert plan[0]["config_file"] not in plan[0]["run_dir"]
     assert plan[0]["schedule"] == "paper_cifar_64k"
+
+
+def test_profile_reports_actual_macs_and_restores_training_mode():
+    from resnet_ablation.research.profile import analyze
+    cfg = Config()
+    cfg.model.arch = "resnet20_cifar"
+    model = build_model(cfg)
+    assert model.training
+    stats = analyze(model, (1, 3, 32, 32))
+    assert model.training
+    assert stats["total_macs"] == stats["conv2d_macs"] + stats["linear_macs"]
+    assert stats["total_macs"] > 0 and stats["parameters"] > 0
+    assert stats["output_shape"] == [1, 10]

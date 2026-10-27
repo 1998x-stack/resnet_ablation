@@ -1,0 +1,11 @@
+# Extension beyond CVPR 2016 Table 3: original v1 vs torchvision v1.5.
+name: imagenet_bottleneck_stride
+base_config: configs/paper/imagenet_control.yaml
+schedule: multistep_epoch
+seeds: [1, 2, 3]
+allowed_factors: [model.arch, model.shortcut, model.bottleneck_stride]
+variants:
+  - id: resnet50_v1
+    overrides: {model: {arch: resnet50, shortcut: B}}
+  - id: resnet50_v15
+    overrides: {model: {arch: resnet50, shortcut: B, bottleneck_stride: v1.5}}

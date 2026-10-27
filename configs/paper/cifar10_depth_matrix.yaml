@@ -1,0 +1,21 @@
+# §4.2 Figures 1 and 6: interaction between depth and skip connections
+name: cifar10_depth
+base_config: configs/paper/cifar10_paper_control.yaml
+schedule: paper_cifar_64k
+steps: 64000
+split_seed: 2026
+seeds: [1, 2, 3]
+allowed_factors: [model.arch, model.residual]
+variants:
+  - id: baseline
+    overrides: {}
+  - id: plain20
+    overrides: {model: {residual: false}}
+  - id: resnet56
+    overrides: {model: {arch: resnet56_cifar}}
+  - id: plain56
+    overrides: {model: {arch: resnet56_cifar, residual: false}}
+  - id: resnet110
+    overrides: {model: {arch: resnet110_cifar}}
+  - id: plain110
+    overrides: {model: {arch: resnet110_cifar, residual: false}}

@@ -1,0 +1,35 @@
+# §3.3 / Table 1 architectures; modern epoch schedule and transforms, not exact reproduction.
+model:
+  arch: resnet34
+  num_classes: 1000
+  residual: true
+  shortcut: A
+  stem: imagenet_standard
+  downsample: proj
+  bottleneck_stride: v1
+  attention: none
+  drop_path_rate: 0.0
+data:
+  name: imagenet
+  root: ./data/imagenet
+  aug: standard
+optim:
+  name: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 0.0001
+  nesterov: false
+  warmup_epochs: 0
+  sched: multistep
+  milestones: [30, 60, 90]
+  gamma: 0.1
+train:
+  epochs: 90
+  batch_size: 256
+  num_workers: 8
+  amp: true
+  clip_grad_norm: null
+  log_interval: 100
+  val_interval: 1
+  label_smoothing: 0.0
+  seed: 1

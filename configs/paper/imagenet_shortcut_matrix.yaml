@@ -1,0 +1,13 @@
+# Table 3: only change A/B/C projection policy on matched ResNet-34
+name: imagenet_abc
+base_config: configs/paper/imagenet_control.yaml
+schedule: multistep_epoch
+seeds: [1, 2, 3]
+allowed_factors: [model.shortcut]
+variants:
+  - id: baseline
+    overrides: {}
+  - id: shortcut_B
+    overrides: {model: {shortcut: B}}
+  - id: shortcut_C
+    overrides: {model: {shortcut: C}}

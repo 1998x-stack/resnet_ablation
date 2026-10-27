@@ -50,3 +50,7 @@ checkpoint 以临时文件加 os.replace 原子更新；用 --resume 从**可信
 - 当前提供 original-paper architecture + CIFAR step schedule + modern preprocessing 的控制实验，不是逐项完全复刻论文。
 - ImageNet 600k-step plateau scheduler、10-crop/multiscale、per-pixel mean、结果显著性检验及足量硬件评测未完成。
 - ResNet-1202 极其耗资源，先运行较小深度、进行容量和资源预估，再独立安排。
+
+## 优化退化的关键可视化
+
+新增 training_error.png（每轮训练错误率）、validation_error.png（验证错误率）。两者均以 optimizer completed steps 为横坐标，并保留训练样本与验证样本定义。只有训练误差在深度增加时明显上升，才能对原论文所讨论的 optimization degradation 提供直接证据；仅凭验证误差不能断言退化。

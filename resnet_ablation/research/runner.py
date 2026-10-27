@@ -259,6 +259,7 @@ def run(config_path: str, run_dir: str, schedule: str, steps: int | None,
         _event(log_path, stats)
         tb.add_scalar("train/loss", stats["loss"], epoch + 1)
         tb.add_scalar("train/acc1", stats["acc1"], epoch + 1)
+        tb.add_scalar("train/error1", 1 - stats["acc1"], epoch + 1)
         tb.add_scalar("train/images_per_sec", stats["images_per_sec"], epoch + 1)
         is_best = False
         if (epoch + 1) % cfg.train.val_interval == 0 or global_step == target:

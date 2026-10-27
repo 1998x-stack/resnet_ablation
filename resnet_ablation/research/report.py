@@ -103,6 +103,7 @@ def plot(result: dict) -> None:
     out = Path(result["output"])
     figures = [
         ("training_loss", "train_epoch", "loss", "Training loss", "Loss"),
+        ("training_error", "train_epoch", "acc1", "Training error (1 - accuracy)", "Error"),
         ("validation_error", "val_epoch", "acc1", "Validation error (1 - accuracy)", "Error"),
         ("learning_rate", "train_step", "lr_used", "Learning rate actually used", "LR"),
         ("gradient_global", "train_step", "grad/global_l2", "Gradient L2", "Gradient norm"),
@@ -115,7 +116,7 @@ def plot(result: dict) -> None:
             if not points:
                 continue
             x = [e["step"] for e in points]
-            y = [1 - e[key] if filename == "validation_error" else e[key] for e in points]
+            y = [1 - e[key] if filename in ("validation_error", "training_error") else e[key] for e in points]
             ax.plot(x, y, label=f"{run['label']} / seed={run['seed']}", alpha=0.8)
             found += 1
         ax.set(title=title, xlabel="Completed optimizer steps", ylabel=ylabel)

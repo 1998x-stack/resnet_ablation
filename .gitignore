@@ -23,18 +23,23 @@ ENV/
 .DS_Store
 *.swp
 
-# ML artifacts
-data/
-dataset/
-datasets/
+# Local datasets, training runs, generated reports and weights.
+# Anchor generic folder names at repo root so new Python modules under
+# resnet_ablation/models/ are NOT silently excluded from git.
+/data/
+/dataset/
+/datasets/
 checkpoints*/
 runs*/
-logs/
-output/
-outputs/
-model/
-models/
-results/
+/logs/
+/output/
+/outputs/
+/model/
+/models/
+/results/
+/reports/
+/tensorboard/
+events.out.tfevents.*
 
 # Model files
 *.pth
@@ -57,3 +62,6 @@ config.yaml
 
 # Superpowers / tooling scratch
 .superpowers/
+# Additional local tooling caches
+.mypy_cache/
+.hypothesis/

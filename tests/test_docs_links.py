@@ -55,3 +55,21 @@ def test_live_entry_points_link_agent_policy_and_runbook() -> None:
     assert "[运行手册](docs/paper/03_RUNBOOK.md)" in readme
     assert "No leakage" in agents
     assert "tests/test_paper_e2e.py" in agents
+
+
+def test_gitignore_does_not_hide_new_model_source_files() -> None:
+    """A plain 'models/' ignore pattern would hide future source modules."""
+    import shutil
+    import subprocess
+
+    patterns = (ROOT / ".gitignore").read_text(encoding="utf8").splitlines()
+    assert "models/" not in patterns
+    assert "/models/" in patterns
+    assert "/reports/" in patterns
+
+    if shutil.which("git"):
+        check = subprocess.run(
+            ["git", "-C", str(ROOT), "check-ignore", "-q", "resnet_ablation/models/new_block.py"],
+            check=False,
+        )
+        assert check.returncode == 1, "new model source files must remain addable to git"

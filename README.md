@@ -76,7 +76,7 @@ python -m resnet_ablation.research.sweep \
   --manifest configs/paper/cifar10_depth_matrix.yaml --execute
 ~~~
 
-矩阵生成的配置保存在 runs/paper/<matrix>/_configs/；每个 variant/seed 使用独立的 run 目录，避免 checkpoint 和指标覆盖。
+矩阵生成的配置保存在 runs/paper/矩阵名称/_configs/；每个 variant/seed 使用独立的 run 目录，避免 checkpoint 和指标覆盖。
 
 ### 4.2 单组训练、调试与成本分析
 

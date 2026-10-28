@@ -24,12 +24,15 @@ def build_model(cfg: Config) -> torch.nn.Module:
         drop_path_rate=m.drop_path_rate,
         stem=_resolved_stem(m.stem),
         downsample=m.downsample,
+        residual=m.residual,
+        bottleneck_stride=m.bottleneck_stride,
     )
     if m.arch.endswith("_cifar"):
         depth = int(m.arch.replace("resnet", "").replace("_cifar", ""))
         return resnet_cifar_6n2(depth=depth, num_classes=m.num_classes, shortcut=m.shortcut,
                                 width_mult=m.width_mult, attention=m.attention,
-                                se_ratio=m.se_ratio, drop_path_rate=m.drop_path_rate)
+                                se_ratio=m.se_ratio, drop_path_rate=m.drop_path_rate,
+                                residual=m.residual)
     if m.arch == "resnet18":
         return resnet18(num_classes=m.num_classes, shortcut=m.shortcut, **extras)
     if m.arch == "resnet34":

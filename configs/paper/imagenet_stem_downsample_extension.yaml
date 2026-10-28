@@ -1,0 +1,14 @@
+# E04/E05. Both contrasts start from the same ResNet-50 v1 backbone.
+name: imagenet_stem_downsample_extension
+base_config: configs/paper/imagenet_control.yaml
+schedule: multistep_epoch
+seeds: [1, 2, 3]
+allowed_factors: [model.arch, model.shortcut, model.stem, model.downsample]
+variants:
+  - id: resnet50_baseline
+    overrides: {model: {arch: resnet50, shortcut: B}}
+  - id: resnet50_deep_stem
+    overrides: {model: {arch: resnet50, shortcut: B, stem: imagenet_deep}}
+  - id: resnet50_avgproj
+    overrides: {model: {arch: resnet50, shortcut: B, downsample: avgproj}}
+# Use report on baseline vs one variant and declare ONLY its changed factor.

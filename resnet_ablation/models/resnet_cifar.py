@@ -12,7 +12,7 @@ class CIFARResNet(nn.Module):
 
     def __init__(self, depth: int, num_classes: int = 10, shortcut: str = "A",
                  width_mult: float = 1.0, attention: str = "none", se_ratio: float = 0.25,
-                 drop_path_rate: float = 0.0):
+                 drop_path_rate: float = 0.0, residual: bool = True):
         super().__init__()
         if depth < 8 or (depth - 2) % 6 != 0:
             raise ValueError("CIFAR ResNet depth must be 6n+2 with n >= 1")
@@ -24,6 +24,7 @@ class CIFARResNet(nn.Module):
         n = (depth - 2) // 6
         base = int(16 * width_mult)
         self.in_planes = base
+        self.residual = residual
 
         self.conv1 = nn.Conv2d(3, base, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(base)
@@ -38,11 +39,11 @@ class CIFARResNet(nn.Module):
         dp_iter = iter(dpr)
 
         self.layer1 = self._make_layer(BasicBlock, base, n, stride=1, shortcut=shortcut,
-                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter)
+                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, residual=residual)
         self.layer2 = self._make_layer(BasicBlock, base * 2, n, stride=2, shortcut=shortcut,
-                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter)
+                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, residual=residual)
         self.layer3 = self._make_layer(BasicBlock, base * 4, n, stride=2, shortcut=shortcut,
-                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter)
+                                       attention=attention, se_ratio=se_ratio, dp_iter=dp_iter, residual=residual)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(base * 4 * BasicBlock.expansion, num_classes)
@@ -55,14 +56,14 @@ class CIFARResNet(nn.Module):
                 nn.init.constant_(module.bias, 0)
 
     def _make_layer(self, block: Type[BasicBlock], planes: int, blocks: int, stride: int,
-                    shortcut: str, attention: str, se_ratio: float, dp_iter):
+                    shortcut: str, attention: str, se_ratio: float, dp_iter, residual: bool):
         layers: List[nn.Module] = []
         layers.append(block(self.in_planes, planes, stride=stride, shortcut=shortcut,
-                            attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter)))
+                            attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter), residual=residual))
         self.in_planes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.in_planes, planes, stride=1, shortcut=shortcut,
-                                attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter)))
+                                attention=attention, se_ratio=se_ratio, drop_path=next(dp_iter), residual=residual))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -76,7 +77,8 @@ class CIFARResNet(nn.Module):
 
 def resnet_cifar_6n2(depth: int, num_classes: int = 10, shortcut: str = "A",
                       width_mult: float = 1.0, attention: str = "none",
-                      se_ratio: float = 0.25, drop_path_rate: float = 0.0) -> CIFARResNet:
+                      se_ratio: float = 0.25, drop_path_rate: float = 0.0,
+                      residual: bool = True) -> CIFARResNet:
     return CIFARResNet(depth=depth, num_classes=num_classes, shortcut=shortcut,
                        width_mult=width_mult, attention=attention, se_ratio=se_ratio,
-                       drop_path_rate=drop_path_rate)
+                       drop_path_rate=drop_path_rate, residual=residual)

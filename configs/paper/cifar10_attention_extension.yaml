@@ -1,0 +1,17 @@
+# E02/E03 modern extensions, not factors from the 2016 ResNet paper.
+name: cifar10_modern_extension
+base_config: configs/paper/cifar10_paper_control.yaml
+schedule: multistep_epoch
+split_seed: 2026
+seeds: [1, 2, 3]
+allowed_factors: [model.attention, model.drop_path_rate]
+variants:
+  - id: baseline
+    overrides: {}
+  - id: se
+    overrides: {model: {attention: se}}
+  - id: eca
+    overrides: {model: {attention: eca}}
+  - id: drop_path_01
+    overrides: {model: {drop_path_rate: 0.1}}
+# Comparisons must be baseline-vs-one-variant; do not attribute a combined effect.

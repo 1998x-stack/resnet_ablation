@@ -1,0 +1,33 @@
+# Modern controlled approximation of He et al. §4.2; preprocessing is not pixel-mean identical.
+model:
+  arch: resnet20_cifar
+  num_classes: 10
+  shortcut: A
+  residual: true
+  width_mult: 1.0
+  attention: none
+  drop_path_rate: 0.0
+data:
+  name: cifar10
+  root: ./data
+  aug: standard
+  mixup_alpha: 0.0
+  cutmix_alpha: 0.0
+optim:
+  name: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 0.0001
+  nesterov: false
+  warmup_epochs: 0
+  sched: multistep
+train:
+  epochs: 200
+  batch_size: 128
+  num_workers: 4
+  amp: false
+  clip_grad_norm: null
+  log_interval: 50
+  val_interval: 1
+  label_smoothing: 0.0
+  seed: 1

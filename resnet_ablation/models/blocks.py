@@ -122,8 +122,9 @@ class BasicBlock(nn.Module):
                  norm: Callable[..., nn.Module] = nn.BatchNorm2d,
                  attention: str = "none",
                  se_ratio: float = 0.25,
-                 drop_path: float = 0.0):
+                 drop_path: float = 0.0, residual: bool = True):
         super().__init__()
+        self.residual = residual
         self.conv1 = conv3x3(in_planes, planes, stride)
         self.bn1 = norm(planes)
         self.conv2 = conv3x3(planes, planes)
@@ -132,7 +133,7 @@ class BasicBlock(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.downsample: Optional[nn.Module] = None
-        if stride != 1 or in_planes != planes * self.expansion:
+        if residual and (stride != 1 or in_planes != planes * self.expansion or shortcut == "C"):
             if shortcut == "A":
                 self.downsample = ShortcutA(in_planes, planes * self.expansion, stride)
             elif shortcut in ("B", "C"):
@@ -151,9 +152,15 @@ class BasicBlock(nn.Module):
         if self.attn is not None:
             out = self.attn(out)
         out = self.drop_path(out)
-        if self.downsample is not None:
-            identity = self.downsample(identity)
-        out += identity
+        if self.residual:
+            if self.downsample is not None:
+                identity = self.downsample(identity)
+            if getattr(self, "capture_statistics", False):
+                with torch.no_grad():
+                    residual_rms = out.detach().float().square().mean().sqrt().item()
+                    shortcut_rms = identity.detach().float().square().mean().sqrt().item()
+                    self.last_residual_ratio = residual_rms / max(shortcut_rms, 1e-12)
+            out = out + identity
         out = self.relu(out)
         return out
 
@@ -167,13 +174,19 @@ class Bottleneck(nn.Module):
                  attention: str = "none",
                  se_ratio: float = 0.25,
                  drop_path: float = 0.0,
-                 downsample_mode: str = "proj"):  # proj / avgproj (ResNet-D)
+                 downsample_mode: str = "proj", residual: bool = True,
+                 bottleneck_stride: str = "v1.5"):
         super().__init__()
-        self.conv1 = conv1x1(in_planes, planes)
+        if bottleneck_stride not in ("v1", "v1.5"):
+            raise ValueError("bottleneck_stride must be v1 or v1.5")
+        self.residual = residual
+        self.conv1 = conv1x1(in_planes, planes, stride if bottleneck_stride == "v1" else 1)
         self.bn1 = norm(planes)
 
         # 残差主分支下采样：仍在 3x3 上做 stride（ResNet-D 的 avg 在快捷分支处理）
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
+                               stride=stride if bottleneck_stride == "v1.5" else 1,
+                               padding=1, bias=False)
         self.bn2 = norm(planes)
 
         self.conv3 = conv1x1(planes, planes * self.expansion)
@@ -183,8 +196,10 @@ class Bottleneck(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.downsample: Optional[nn.Module] = None
-        if stride != 1 or in_planes != planes * self.expansion:
-            if downsample_mode == "avgproj":
+        if residual and (stride != 1 or in_planes != planes * self.expansion or shortcut == "C"):
+            if shortcut == "A":
+                self.downsample = ShortcutA(in_planes, planes * self.expansion, stride)
+            elif downsample_mode == "avgproj" and stride > 1:
                 self.downsample = nn.Sequential(
                     nn.AvgPool2d(kernel_size=2, stride=stride, ceil_mode=True, count_include_pad=False),
                     conv1x1(in_planes, planes * self.expansion, stride=1),
@@ -206,8 +221,14 @@ class Bottleneck(nn.Module):
         if self.attn is not None:
             out = self.attn(out)
         out = self.drop_path(out)
-        if self.downsample is not None:
-            identity = self.downsample(identity)
-        out += identity
+        if self.residual:
+            if self.downsample is not None:
+                identity = self.downsample(identity)
+            if getattr(self, "capture_statistics", False):
+                with torch.no_grad():
+                    residual_rms = out.detach().float().square().mean().sqrt().item()
+                    shortcut_rms = identity.detach().float().square().mean().sqrt().item()
+                    self.last_residual_ratio = residual_rms / max(shortcut_rms, 1e-12)
+            out = out + identity
         out = self.relu(out)
         return out

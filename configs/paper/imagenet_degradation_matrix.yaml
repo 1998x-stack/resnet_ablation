@@ -1,0 +1,15 @@
+# §4.1 Figure 4: plain 18/34 vs residual 18/34 matched 2-by-2 comparison.
+name: imagenet_depth_degradation
+base_config: configs/paper/imagenet_control.yaml
+schedule: multistep_epoch
+seeds: [1, 2, 3]
+allowed_factors: [model.arch, model.residual]
+variants:
+  - id: baseline
+    overrides: {}
+  - id: plain34
+    overrides: {model: {residual: false}}
+  - id: resnet18
+    overrides: {model: {arch: resnet18}}
+  - id: plain18
+    overrides: {model: {arch: resnet18, residual: false}}
